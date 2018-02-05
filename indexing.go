@@ -28,6 +28,7 @@ type Options struct {
 	Scheme    string // http or https
 	Username  string
 	Password  string
+	Pipeline  string
 }
 
 // Item represents a bulk action.
@@ -113,7 +114,7 @@ func BulkIndex(docs []string, options Options) error {
 	if len(docs) == 0 {
 		return nil
 	}
-	link := fmt.Sprintf("%s://%s:%d/_bulk", options.Scheme, options.Host, options.Port)
+	link := fmt.Sprintf("%s://%s:%d/_bulk?pipeline=%s", options.Scheme, options.Host, options.Port, options.Pipeline)
 	var lines []string
 	for _, doc := range docs {
 		if len(strings.TrimSpace(doc)) == 0 {
