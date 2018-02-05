@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/miku/esbulk"
+	"github.com/MilesOkeefe/esbulk"
 )
 
 // Application Version.
