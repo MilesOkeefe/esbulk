@@ -95,7 +95,7 @@ func main() {
 		IDField:   *idfield,
 		Username:  username,
 		Password:  password,
-		Pipeline:  pipeline,
+		Pipeline:  *pipeline,
 	}
 
 	// backwards-compat for -host and -port, only use newer -server flag if
