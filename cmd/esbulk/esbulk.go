@@ -113,26 +113,26 @@ func main() {
 	}
 
 	// create index if not exists
-	if err := esbulk.CreateIndex(options); err != nil {
-		log.Fatal(err)
-	}
-
-	if *mapping != "" {
-		var reader io.Reader
-		if _, err := os.Stat(*mapping); os.IsNotExist(err) {
-			reader = strings.NewReader(*mapping)
-		} else {
-			file, err := os.Open(*mapping)
-			if err != nil {
-				log.Fatal(err)
-			}
-			reader = bufio.NewReader(file)
-		}
-		err := esbulk.PutMapping(options, reader)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
+	//if err := esbulk.CreateIndex(options); err != nil {
+	//	log.Fatal(err)
+	//}
+	//
+	//if *mapping != "" {
+		// var reader io.Reader
+		// if _, err := os.Stat(*mapping); os.IsNotExist(err) {
+		//   reader = strings.NewReader(*mapping)
+		// } else {
+		//   file, err := os.Open(*mapping)
+		//   if err != nil {
+		//     log.Fatal(err)
+		//   }
+		//   reader = bufio.NewReader(file)
+		// }
+		// err := esbulk.PutMapping(options, reader)
+		// if err != nil {
+		//   log.Fatal(err)
+		// }
+	// }
 
 	queue := make(chan string)
 	var wg sync.WaitGroup
