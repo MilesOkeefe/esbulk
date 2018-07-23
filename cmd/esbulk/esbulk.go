@@ -15,7 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-
+	
+	"github.com/MilesOkeefe/esbulk"
 	"github.com/sethgrid/pester"
 )
 
