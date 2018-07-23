@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/MilesOkeefe/esbulk"
-	"github.com/miku/esbulk"
 	"github.com/sethgrid/pester"
 )
 
