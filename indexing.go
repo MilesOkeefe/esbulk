@@ -7,25 +7,26 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/sethgrid/pester"
 )
 
 var errParseCannotServerAddr = errors.New("cannot parse server address")
 
 // Options represents bulk indexing options.
 type Options struct {
-	Host      string
-	Port      int
+	Servers   []string
 	Index     string
 	DocType   string
 	BatchSize int
 	Verbose   bool
 	IDField   string
-	Scheme    string // http or https
+	Scheme    string // http or https; deprecated, use: Servers.
 	Username  string
 	Password  string
 	Pipeline  string
@@ -55,37 +56,7 @@ type BulkResponse struct {
 	Items     []Item `json:"items"`
 }
 
-// SetServer parses out host and port for a string and sets the option values.
-func (o *Options) SetServer(s string) error {
-	locator, err := url.Parse(s)
-	if err != nil {
-		return err
-	}
-	o.Scheme = locator.Scheme
-	parts := strings.Split(locator.Host, ":")
-	switch len(parts) {
-	case 1:
-		log.Println(s, locator.Host, parts)
-		// assume port, like https://:9200
-		port, err := strconv.Atoi(parts[0])
-		if err != nil {
-			return err
-		}
-		o.Port = port
-	case 2:
-		o.Host = parts[0]
-		port, err := strconv.Atoi(parts[1])
-		if err != nil {
-			return err
-		}
-		o.Port = port
-	default:
-		return errParseCannotServerAddr
-	}
-	return nil
-}
-
-//nestedStr handles the nested JSON values
+// nestedStr handles the nested JSON values.
 func nestedStr(tokstr []string, docmap map[string]interface{}, currentID string) interface{} {
 	thistok := tokstr[0]
 	tempStr2, ok := docmap[thistok].(map[string]interface{})
@@ -114,7 +85,11 @@ func BulkIndex(docs []string, options Options) error {
 	if len(docs) == 0 {
 		return nil
 	}
-	link := fmt.Sprintf("%s://%s:%d/_bulk?pipeline=%s", options.Scheme, options.Host, options.Port, options.Pipeline)
+
+	rand.Seed(time.Now().Unix())
+	server := options.Servers[rand.Intn(len(options.Servers))]
+	link := fmt.Sprintf("%s/_bulk?pipeline=%s", server, options.Pipeline)
+
 	var lines []string
 	for _, doc := range docs {
 		if len(strings.TrimSpace(doc)) == 0 {
@@ -130,10 +105,10 @@ func BulkIndex(docs []string, options Options) error {
 			dec := json.NewDecoder(strings.NewReader(doc))
 			dec.UseNumber()
 			if err := dec.Decode(&docmap); err != nil {
-				return err
+				return fmt.Errorf("failed to json decode doc: %v", err)
 			}
 
-			idstring := options.IDField //A delimiter separates string with all the fields to be used as ID
+			idstring := options.IDField // A delimiter separates string with all the fields to be used as ID.
 			id := strings.FieldsFunc(idstring, func(r rune) bool { return r == ',' || r == ' ' })
 			// ID can be any type at this point, try to find a string
 			// representation or bail out.
@@ -173,10 +148,10 @@ func BulkIndex(docs []string, options Options) error {
 			// Remove the IDField if it is accidentally named '_id', since
 			// Field [_id] is a metadata field and cannot be added inside a
 			// document.
-			var flag int // 0 by default
+			var flag int
 			for count := range id {
 				if id[count] == "_id" {
-					flag = 1 //check if any of the id fields to be concatenated is named '_id'
+					flag = 1 // Check if any of the id fields to be concatenated is named '_id'.
 				}
 			}
 
@@ -208,7 +183,7 @@ func BulkIndex(docs []string, options Options) error {
 		req.SetBasicAuth(options.Username, options.Password)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	response, err := http.DefaultClient.Do(req)
+	response, err := pester.Do(req)
 	if err != nil {
 		return err
 	}
@@ -280,7 +255,11 @@ func Worker(id string, options Options, lines chan string, wg *sync.WaitGroup) {
 
 // PutMapping applies a mapping from a reader.
 func PutMapping(options Options, body io.Reader) error {
-	link := fmt.Sprintf("%s://%s:%d/%s/_mapping/%s", options.Scheme, options.Host, options.Port, options.Index, options.DocType)
+
+	rand.Seed(time.Now().Unix())
+	server := options.Servers[rand.Intn(len(options.Servers))]
+	link := fmt.Sprintf("%s/%s/_mapping/%s", server, options.Index, options.DocType)
+
 	if options.Verbose {
 		log.Printf("applying mapping: %s", link)
 	}
@@ -292,9 +271,16 @@ func PutMapping(options Options, body io.Reader) error {
 		req.SetBasicAuth(options.Username, options.Password)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := pester.Do(req)
 	if err != nil {
 		return err
+	}
+	if resp.StatusCode != 200 {
+		var buf bytes.Buffer
+		if _, err := io.Copy(&buf, resp.Body); err != nil {
+			return err
+		}
+		return fmt.Errorf("failed to apply mapping with %s: %s", resp.Status, buf.String())
 	}
 	if options.Verbose {
 		log.Printf("applied mapping: %s", resp.Status)
@@ -304,7 +290,10 @@ func PutMapping(options Options, body io.Reader) error {
 
 // CreateIndex creates a new index.
 func CreateIndex(options Options) error {
-	link := fmt.Sprintf("%s://%s:%d/%s", options.Scheme, options.Host, options.Port, options.Index)
+	rand.Seed(time.Now().Unix())
+	server := options.Servers[rand.Intn(len(options.Servers))]
+	link := fmt.Sprintf("%s/%s", server, options.Index)
+
 	req, err := http.NewRequest("GET", link, nil)
 	if err != nil {
 		return err
@@ -315,18 +304,19 @@ func CreateIndex(options Options) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := pester.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	// index already exists, return
+	// Index already exists, return.
 	if resp.StatusCode == 200 {
 		return nil
 	}
 
-	req, err = http.NewRequest("PUT", fmt.Sprintf("%s://%s:%d/%s/", options.Scheme, options.Host, options.Port, options.Index), nil)
+	req, err = http.NewRequest("PUT", fmt.Sprintf("%s/%s/", server, options.Index), nil)
+
 	if err != nil {
 		return err
 	}
@@ -334,7 +324,7 @@ func CreateIndex(options Options) error {
 		req.SetBasicAuth(options.Username, options.Password)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err = http.DefaultClient.Do(req)
+	resp, err = pester.Do(req)
 
 	// Elasticsearch backwards compat.
 	if resp.StatusCode == 400 {
@@ -372,7 +362,10 @@ func CreateIndex(options Options) error {
 
 // DeleteIndex removes an index.
 func DeleteIndex(options Options) error {
-	link := fmt.Sprintf("%s://%s:%d/%s", options.Scheme, options.Host, options.Port, options.Index)
+	rand.Seed(time.Now().Unix())
+	server := options.Servers[rand.Intn(len(options.Servers))]
+	link := fmt.Sprintf("%s/%s", server, options.Index)
+
 	req, err := http.NewRequest("DELETE", link, nil)
 	if err != nil {
 		return err
@@ -381,7 +374,7 @@ func DeleteIndex(options Options) error {
 		req.SetBasicAuth(options.Username, options.Password)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := pester.Do(req)
 	if err != nil {
 		return err
 	}
